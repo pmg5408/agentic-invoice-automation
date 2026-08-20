@@ -1,0 +1,6 @@
+[
+  {"item": "WidgetA",  "stock": 15, "unit_price": "250.00", "category": "widgets"},
+  {"item": "WidgetB",  "stock": 10, "unit_price": "500.00", "category": "widgets"},
+  {"item": "GadgetX",  "stock": 5,  "unit_price": "750.00", "category": "gadgets"},
+  {"item": "FakeItem", "stock": 0,  "unit_price": null,     "category": "discontinued"}
+]

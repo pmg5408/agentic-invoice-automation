@@ -1,0 +1,17 @@
+[
+  {"name": "Widgets Inc.",                 "first_seen": "2019-03-11", "invoice_count": 214, "status": "active"},
+  {"name": "Gadgets Co.",                  "first_seen": "2020-07-02", "invoice_count": 138, "status": "active"},
+  {"name": "Precision Parts Ltd.",         "first_seen": "2018-11-26", "invoice_count": 301, "status": "active"},
+  {"name": "Global Supply Chain Partners", "first_seen": "2021-01-19", "invoice_count": 87,  "status": "active"},
+  {"name": "Acme Industrial Supplies",     "first_seen": "2017-05-08", "invoice_count": 452, "status": "active"},
+  {"name": "MegaWidgets Corp",             "first_seen": "2022-04-14", "invoice_count": 63,  "status": "active"},
+  {"name": "Consolidated Materials Group", "first_seen": "2020-09-30", "invoice_count": 119, "status": "active"},
+  {"name": "Summit Manufacturing Co.",     "first_seen": "2019-08-21", "invoice_count": 176, "status": "active"},
+  {"name": "QuickShip Distributers",       "first_seen": "2025-11-04", "invoice_count": 2,   "status": "watchlist"},
+  {"name": "Atlas Industrial Supply",      "first_seen": "2021-06-17", "invoice_count": 94,  "status": "active"},
+  {"name": "TechParts International",      "first_seen": "2022-10-03", "invoice_count": 41,  "status": "active"},
+  {"name": "Reliable Components Inc.",     "first_seen": "2018-02-13", "invoice_count": 268, "status": "active"},
+  {"name": "Vertex Tooling Group",         "first_seen": "2023-03-27", "invoice_count": 28,  "status": "active"},
+  {"name": "Harbor Freight Systems",       "first_seen": "2016-10-05", "invoice_count": 511, "status": "inactive"},
+  {"name": "Northwind Fasteners",          "first_seen": "2024-01-22", "invoice_count": 15,  "status": "active"}
+]
