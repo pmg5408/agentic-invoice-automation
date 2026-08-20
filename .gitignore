@@ -28,3 +28,7 @@ htmlcov/
 .vscode/
 .idea/
 .DS_Store
+
+# Local agent config
+.claude/settings.local.json
+.claude/post-candidates.md
