@@ -8,6 +8,9 @@ the approval threshold to $500 mid-demo is a flag, not an edit:
 Nested values use a double underscore:
 
     INVOICE_AGENT_STAGES__EXTRACT__MODEL=openai/gpt-oss-120b
+
+Importing this module loads ``.env`` into the process environment, which is how
+provider API keys reach the adapters.
 """
 
 from __future__ import annotations
@@ -16,8 +19,14 @@ from decimal import Decimal
 from functools import lru_cache
 from typing import Literal
 
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Provider API keys are read from os.environ by the adapters, and env_file below
+# only feeds this Settings object -- it never touches the process environment.
+# Real environment variables still win; .env only fills the gaps.
+load_dotenv(override=False)
 
 StructuredOutputMode = Literal["nvext_guided_json", "json_schema", "tool_use"]
 
