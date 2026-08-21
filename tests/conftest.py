@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Callable
 from datetime import UTC, datetime
+from io import StringIO
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -18,6 +19,7 @@ import pytest
 from invoice_agent.config import Settings
 from invoice_agent.db import seed_db
 from invoice_agent.models import ExtractedInvoice, InvoiceRun, LineItem, SourceDocument
+from invoice_agent.obs import JsonLogger
 from invoice_agent.repository import SqliteInvoiceRepository
 
 SEED_DIR = Path(__file__).resolve().parents[1] / "data" / "seed"
@@ -101,3 +103,14 @@ def make_run(make_source, make_extraction) -> Callable[..., InvoiceRun]:
         return InvoiceRun(**{**defaults, **overrides})
 
     return _make
+
+
+@pytest.fixture
+def log_stream() -> StringIO:
+    """Captured JSON-lines output. Parse with `json.loads` per line."""
+    return StringIO()
+
+
+@pytest.fixture
+def logger(log_stream: StringIO) -> JsonLogger:
+    return JsonLogger(log_stream)
