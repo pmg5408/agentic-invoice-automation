@@ -6,6 +6,9 @@
 
 from __future__ import annotations
 
+import json
+from decimal import Decimal
+
 import pytest
 from pydantic import ValidationError
 
@@ -17,7 +20,12 @@ from invoice_agent.llm.client import (
     PromptSegment,
 )
 from invoice_agent.llm.stub import RaisingProvider, StubProvider, stub_client
-from invoice_agent.models import ExtractedInvoice
+from invoice_agent.models import (
+    ApprovalDraft,
+    Critique,
+    ExtractedInvoice,
+    RepairOutput,
+)
 
 
 def request(stage: str = "extract") -> LLMRequest:
@@ -125,3 +133,24 @@ class TestProvenance:
         response = client.complete(request(), ExtractedInvoice)
         assert response.attempts == 2
         assert response.metrics.prompt_version == "v1"
+
+
+class TestMoneySchemaIsCompilable:
+    """Constrained decoding cannot compile look-around. Pydantic's Decimal
+    schema contains a negative lookahead, so money is advertised as a plain
+    string; validation is unchanged."""
+
+    @pytest.mark.parametrize(
+        "payload", [ExtractedInvoice, RepairOutput, ApprovalDraft, Critique]
+    )
+    def test_no_lookaround_in_any_llm_schema(self, payload):
+        assert "(?!" not in json.dumps(payload.model_json_schema())
+
+    @pytest.mark.parametrize("bad", ["1.2.3", "-", "abc", ""])
+    def test_bad_money_is_still_rejected(self, bad):
+        with pytest.raises(ValidationError):
+            ExtractedInvoice.model_validate_json(json.dumps({"total_amount": bad}))
+
+    def test_money_parses_to_an_exact_decimal(self):
+        inv = ExtractedInvoice.model_validate_json('{"total_amount":"22562.80"}')
+        assert inv.total_amount == Decimal("22562.80")
