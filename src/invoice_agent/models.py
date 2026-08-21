@@ -14,12 +14,23 @@ from enum import StrEnum
 from typing import Annotated, Literal, Protocol
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, computed_field
 
 # --------------------------------------------------------------------------
 # Findings
 # --------------------------------------------------------------------------
 
+
+# Money is Decimal everywhere, but Decimal's generated JSON Schema carries a
+# negative-lookahead pattern, and constrained decoding engines cannot compile
+# look-around -- the request 400s before the model ever runs. Advertise a plain
+# string with an example instead. Validation is untouched: "1.2.3" and "-" are
+# still rejected, and a string parses to an exact Decimal where a JSON number
+# would arrive as a float.
+Money = Annotated[
+    Decimal,
+    WithJsonSchema({"type": "string", "description": 'decimal amount, e.g. "1250.00"'}),
+]
 
 Severity = Literal["info", "warning", "blocking"]
 
@@ -134,8 +145,8 @@ class SourceDocument(Artifact):
 class LineItem(Artifact):
     raw_item_name: str
     quantity: int | None = None
-    unit_price: Decimal | None = None
-    line_total: Decimal | None = None
+    unit_price: Money | None = None
+    line_total: Money | None = None
 
 
 class ExtractedInvoice(Artifact):
@@ -152,8 +163,8 @@ class ExtractedInvoice(Artifact):
     invoice_number: str | None = None
     vendor_name: str | None = None
     currency: str | None = None
-    total_amount: Decimal | None = None
-    subtotal: Decimal | None = None
+    total_amount: Money | None = None
+    subtotal: Money | None = None
     issue_date: date | None = None
     due_date: date | None = None
     line_items: list[LineItem] = Field(default_factory=list)
@@ -309,7 +320,7 @@ class ApprovalDecision(Artifact):
 class PaymentResult(Artifact):
     idempotency_key: str
     status: Literal["paid", "skipped_duplicate", "skipped_not_approved", "failed"]
-    amount: Decimal | None = None
+    amount: Money | None = None
     currency: str | None = None
     vendor: str | None = None
     provider_response: dict | None = None
@@ -334,7 +345,7 @@ class StageMetrics(Artifact):
     output_tokens: int = 0
     cached_tokens: int = 0
     latency_ms: int = 0
-    cost_usd: Decimal = Decimal("0")
+    cost_usd: Money = Decimal("0")
 
 
 class InvoiceRun(BaseModel):
@@ -374,7 +385,7 @@ class InventoryItem(Artifact):
 
     item: str
     stock: int
-    unit_price: Decimal | None = None
+    unit_price: Money | None = None
     category: str | None = None
 
 
