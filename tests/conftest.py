@@ -18,6 +18,7 @@ import pytest
 
 from invoice_agent.config import Settings
 from invoice_agent.db import seed_db
+from invoice_agent.deps import Deps
 from invoice_agent.llm.client import LLMClient
 from invoice_agent.llm.stub import stub_client
 from invoice_agent.models import ExtractedInvoice, InvoiceRun, LineItem, SourceDocument
@@ -126,3 +127,12 @@ def stub_llm() -> Callable[..., LLMClient]:
         client = stub_llm(['{"bad":', make_extraction()]) # retry, then succeed
     """
     return stub_client
+
+
+@pytest.fixture
+def deps(settings, repo, logger) -> Deps:
+    """Everything a node needs. Override .llm per test:
+
+        node = make_extract(replace(deps, llm=stub_llm([extraction])))
+    """
+    return Deps(settings=settings, repo=repo, llm=stub_client(["{}"]), logger=logger)
