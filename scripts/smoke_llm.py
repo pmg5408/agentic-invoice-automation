@@ -5,9 +5,9 @@
 Needs NVIDIA_API_KEY. Get one free at https://build.nvidia.com -- no card.
 
 This checks the one assumption the extractor rests on: that NIM's
-`nvext.guided_json` really does constrain output to a Pydantic schema. If this
-fails, the structured_output_mode in config.py is wrong for the chosen model,
-not the prompt.
+the configured structured_output_mode really does constrain output to a
+Pydantic schema. If this fails, the mode in config.py is wrong for the chosen
+model, not the prompt.
 """
 
 from __future__ import annotations
@@ -76,7 +76,7 @@ def main() -> int:
     print(f"line_items     : {[li.raw_item_name for li in parsed.line_items]}")
 
     ok = parsed.invoice_number == "INV-1001" and parsed.total_amount is not None
-    print("\nguided_json constrains output to the schema: OK")
+    print("\nstructured output constrains the response to the schema: OK")
     print("values look right: " + ("OK" if ok else "CHECK -- schema held but content is off"))
     return 0
 

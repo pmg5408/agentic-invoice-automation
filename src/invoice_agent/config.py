@@ -50,9 +50,11 @@ PROVIDERS: dict[str, ProviderProfile] = {
         name="nvidia",
         base_url="https://integrate.api.nvidia.com/v1",
         api_key_env="NVIDIA_API_KEY",
-        # NIM does not accept response_format=json_schema for LLMs. It wants
-        # extra_body={"nvext": {"guided_json": ...}}. See llm/nvidia.py.
-        structured_output_mode="nvext_guided_json",
+        # Measured against this endpoint: minimax-m3 rejects nvext outright
+        # ("unknown field guided_json") and honours response_format json_schema.
+        # The mode is really a property of the model, not the endpoint -- this
+        # sits here until a second working model forces the split.
+        structured_output_mode="json_schema",
         # Free tier reports no cached tokens and documents no prompt caching.
         # The batch runner reads this flag to decide whether to warm the cache
         # before fanning out; False means fan out immediately.
@@ -70,8 +72,10 @@ class StageLLMConfig(BaseModel):
     max_tokens: int = 4096
 
 
-_EXTRACTION_MODEL = "meta/llama-3.3-70b-instruct"
-_REASONING_MODEL = "nvidia/llama-3.3-nemotron-super-49b-v1.5"
+# The only model on this endpoint that answers. Others in the catalogue either
+# 404 ("not found for account") or accept the connection and never respond.
+_EXTRACTION_MODEL = "minimaxai/minimax-m3"
+_REASONING_MODEL = "minimaxai/minimax-m3"
 
 
 class Settings(BaseSettings):
