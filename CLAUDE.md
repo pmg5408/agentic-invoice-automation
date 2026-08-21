@@ -23,8 +23,11 @@ Python is **3.14** — PEP 695 generics (`def f[T: BaseModel]`), `StrEnum` and
 - **Nodes get `Deps`, never globals.** Implement `make_<node>(deps) -> NodeFn` and
   read `deps.settings` / `deps.repo` / `deps.llm` / `deps.logger`. Test a node by
   calling it directly; no LangGraph needed.
-- **Return partial state updates, and rebuild lists rather than mutating:**
-  `return {"validations": run.validations + [report]}`. Artifacts are frozen.
+- **Return partial state updates. LangGraph replaces the keys you name, it does not
+  merge them,** so rebuild collections from their current value:
+  `{"validations": run.validations + [report]}` and
+  `{"stage_metrics": {**run.stage_metrics, "<stage>": metrics}}`. A bare list or dict
+  discards every earlier stage without raising. Artifacts are frozen.
 - **Thresholds come from `deps.settings`.** No magic numbers in component code.
 
 ## Testing against an LLM
