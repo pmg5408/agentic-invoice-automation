@@ -1,13 +1,12 @@
 """NVIDIA NIM adapter (build.nvidia.com).
 
-OpenAI-compatible at https://integrate.api.nvidia.com/v1, with one important
-deviation: NIM does **not** accept ``response_format={"type": "json_schema"}``
-for LLMs. It wants the schema under its own extension:
+OpenAI-compatible at https://integrate.api.nvidia.com/v1, so the OpenAI client
+does the work. How a model is asked for a specific output shape varies by
+model rather than by endpoint, so the request is built from
+``profile.structured_output_mode`` rather than hardcoded.
 
-    extra_body={"nvext": {"guided_json": <schema>}}
-
-That quirk is the reason nodes never build a raw request. They hand an
-LLMRequest to LLMClient and get back a validated model.
+Nodes never build a raw request. They hand an LLMRequest to LLMClient and get
+back a validated model.
 """
 
 from __future__ import annotations
@@ -44,8 +43,14 @@ class NvidiaProvider:
                 "https://build.nvidia.com (no card required) and put it in .env"
             )
         self._profile = profile
+        # max_retries=0: LLMClient owns retry. The SDK's default of 2 would
+        # stack underneath it, so one logical call could be six HTTP attempts,
+        # and SDK-internal retries never reach StageMetrics.
         self._client = OpenAI(
-            base_url=profile.base_url, api_key=api_key, timeout=float(timeout_s)
+            base_url=profile.base_url,
+            api_key=api_key,
+            timeout=float(timeout_s),
+            max_retries=0,
         )
 
     def invoke(self, request: LLMRequest, schema: dict) -> RawCompletion:
@@ -55,7 +60,7 @@ class NvidiaProvider:
             messages=_messages(request),
             temperature=request.temperature,
             max_tokens=request.max_tokens,
-            extra_body={"nvext": {"guided_json": schema}},
+            **_shape(self._profile.structured_output_mode, schema),
         )
         latency_ms = int((time.perf_counter() - started) * 1000)
 
@@ -70,6 +75,30 @@ class NvidiaProvider:
             cached_tokens=getattr(details, "cached_tokens", 0) or 0,
             latency_ms=latency_ms,
         )
+
+
+def _shape(mode: str, schema: dict) -> dict:
+    """How to ask this endpoint for a specific output shape."""
+    if mode == "json_schema":
+        return {
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": schema.get("title", "Response"),
+                    "schema": schema,
+                    "strict": True,
+                },
+            }
+        }
+    if mode == "nvext_guided_json":
+        return {"extra_body": {"nvext": {"guided_json": schema}}}
+    if mode == "tool_use":
+        name = schema.get("title", "Response")
+        return {
+            "tools": [{"type": "function", "function": {"name": name, "parameters": schema}}],
+            "tool_choice": {"type": "function", "function": {"name": name}},
+        }
+    raise LLMUnavailableError(f"unknown structured_output_mode: {mode}")
 
 
 def build_provider(settings: Settings) -> NvidiaProvider:

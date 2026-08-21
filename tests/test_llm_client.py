@@ -135,6 +135,37 @@ class TestProvenance:
         assert response.metrics.prompt_version == "v1"
 
 
+class TestStructuredOutputShape:
+    """How a model is asked for a shape is dispatched, not hardcoded. The mode
+    is a measured property of the model behind the endpoint."""
+
+    def test_json_schema_uses_response_format(self):
+        from invoice_agent.llm.nvidia import _shape
+
+        kw = _shape("json_schema", ExtractedInvoice.model_json_schema())
+        assert kw["response_format"]["type"] == "json_schema"
+        assert kw["response_format"]["json_schema"]["strict"] is True
+
+    def test_nvext_uses_extra_body(self):
+        from invoice_agent.llm.nvidia import _shape
+
+        kw = _shape("nvext_guided_json", {"title": "X"})
+        assert kw["extra_body"]["nvext"]["guided_json"] == {"title": "X"}
+
+    def test_tool_use_forces_a_single_tool(self):
+        from invoice_agent.llm.nvidia import _shape
+
+        kw = _shape("tool_use", {"title": "X"})
+        assert kw["tool_choice"]["function"]["name"] == "X"
+
+    def test_unknown_mode_is_an_llm_error(self):
+        from invoice_agent.llm.client import LLMError
+        from invoice_agent.llm.nvidia import _shape
+
+        with pytest.raises(LLMError):
+            _shape("telepathy", {})
+
+
 class TestMoneySchemaIsCompilable:
     """Constrained decoding cannot compile look-around. Pydantic's Decimal
     schema contains a negative lookahead, so money is advertised as a plain

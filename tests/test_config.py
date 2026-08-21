@@ -52,9 +52,8 @@ def test_unknown_provider_names_itself_in_the_error():
 
 
 class TestNvidiaProfile:
-    def test_uses_the_nim_guided_json_path(self):
-        # NIM rejects response_format=json_schema for LLMs.
-        assert PROVIDERS["nvidia"].structured_output_mode == "nvext_guided_json"
+    def test_asks_for_shape_with_response_format(self):
+        assert PROVIDERS["nvidia"].structured_output_mode == "json_schema"
 
     def test_declares_no_prompt_cache(self):
         # The batch runner reads this to decide whether to warm before fanning out.
