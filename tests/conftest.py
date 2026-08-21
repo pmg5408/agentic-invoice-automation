@@ -18,6 +18,8 @@ import pytest
 
 from invoice_agent.config import Settings
 from invoice_agent.db import seed_db
+from invoice_agent.llm.client import LLMClient
+from invoice_agent.llm.stub import stub_client
 from invoice_agent.models import ExtractedInvoice, InvoiceRun, LineItem, SourceDocument
 from invoice_agent.obs import JsonLogger
 from invoice_agent.repository import SqliteInvoiceRepository
@@ -114,3 +116,13 @@ def log_stream() -> StringIO:
 @pytest.fixture
 def logger(log_stream: StringIO) -> JsonLogger:
     return JsonLogger(log_stream)
+
+
+@pytest.fixture
+def stub_llm() -> Callable[..., LLMClient]:
+    """A real LLMClient backed by canned responses.
+
+        client = stub_llm([make_extraction()])            # happy path
+        client = stub_llm(['{"bad":', make_extraction()]) # retry, then succeed
+    """
+    return stub_client
