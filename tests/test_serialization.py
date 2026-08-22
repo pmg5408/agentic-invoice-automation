@@ -38,17 +38,18 @@ EXPECTED_CODES = {
     "PAST_DUE_DATE": ("info", False),
     "UNKNOWN_VENDOR": ("warning", False),
     "CURRENCY_MISMATCH": ("warning", False),
+    "EXACT_DUPLICATE": ("info", False),
 }
 
 
 class TestFindingCode:
-    """Seven of these twelve share a (severity, repairable) pair. Declared as a
-    plain Enum with tuple values, Python aliases them and five members survive.
+    """Seven of the first twelve share a (severity, repairable) pair. Declared
+    as a plain Enum with tuple values, Python aliases them and five survive.
     """
 
-    def test_all_twelve_members_exist_and_are_distinct(self):
-        assert len(list(FindingCode)) == 12
-        assert len({id(m) for m in FindingCode}) == 12
+    def test_all_thirteen_members_exist_and_are_distinct(self):
+        assert len(list(FindingCode)) == 13
+        assert len({id(m) for m in FindingCode}) == 13
 
     def test_no_member_is_an_alias(self):
         # __members__ includes aliases; iteration does not. Equal length => none.

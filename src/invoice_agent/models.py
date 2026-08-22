@@ -71,6 +71,11 @@ class FindingCode(StrEnum):
     TOTAL_MISMATCH = ("TOTAL_MISMATCH", "warning", False)
     DUPLICATE_INVOICE = ("DUPLICATE_INVOICE", "blocking", False)
     DUPLICATE_OF_PAID_INVOICE = ("DUPLICATE_OF_PAID_INVOICE", "blocking", False)
+    # Same fingerprint as an already-claimed identity -- the two runs agree,
+    # so this is informational, not a problem. Non-blocking and non-repairable
+    # so it never triggers repair on its own; decisions.md 19 has triage treat
+    # it as an override to skip recommend/critique too.
+    EXACT_DUPLICATE = ("EXACT_DUPLICATE", "info", False)
     PAST_DUE_DATE = ("PAST_DUE_DATE", "info", False)
     UNKNOWN_VENDOR = ("UNKNOWN_VENDOR", "warning", False)
     CURRENCY_MISMATCH = ("CURRENCY_MISMATCH", "warning", False)
