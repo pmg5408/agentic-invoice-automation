@@ -28,6 +28,11 @@ NODES = {
     "triage", "recommend", "critique", "decide", "pay",
 }
 
+# Nodes with a real implementation. Shrinks as each component lands, so the
+# honesty check below stays meaningful for whatever is still a stub.
+IMPLEMENTED = {"load"}
+STILL_STUBBED = NODES - IMPLEMENTED
+
 
 def report(*findings: Finding, pass_number: int = 1) -> ValidationReport:
     return ValidationReport(
@@ -141,7 +146,7 @@ class TestStubsAreHonest:
         """Nothing silently returns None while the pipeline is half-built."""
         import importlib
 
-        for name in sorted(NODES):
+        for name in sorted(STILL_STUBBED):
             module = importlib.import_module(f"invoice_agent.nodes.{name}")
             node = getattr(module, f"make_{name}")(deps)
             with pytest.raises(NotImplementedError, match=name):

@@ -22,22 +22,9 @@ from invoice_agent.graph import build_graph
 from invoice_agent.llm.client import LLMClient, LLMError
 from invoice_agent.llm.nvidia import build_provider
 from invoice_agent.models import InvoiceRun, SourceDocument
+from invoice_agent.nodes.load import SUFFIX_FORMATS, UnsupportedFormat
 from invoice_agent.obs import JsonLogger
 from invoice_agent.repository import SqliteInvoiceRepository
-
-
-class UnsupportedFormat(Exception):
-    """The file extension maps to no loader. Guessing "txt" here would hand the
-    extraction model mojibake, which it would confidently extract from."""
-
-
-SUFFIX_FORMATS = {
-    ".txt": "txt",
-    ".json": "json",
-    ".csv": "csv",
-    ".xml": "xml",
-    ".pdf": "pdf",
-}
 
 
 def build_deps() -> Deps:
