@@ -36,8 +36,7 @@ SUFFIX_FORMATS: dict[str, str] = {
 
 
 class UnsupportedFormat(Exception):
-    """The file extension maps to no loader. Guessing "txt" here would hand the
-    extraction model mojibake, which it would confidently extract from."""
+    """The file extension maps to no loader"""
 
 
 def _extract_text(path: Path, raw_bytes: bytes, source_format: str) -> tuple[str, bool]:
