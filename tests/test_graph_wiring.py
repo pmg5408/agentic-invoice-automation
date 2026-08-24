@@ -6,20 +6,25 @@ component session can trust the edges it is plugging into.
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import pytest
 
+from invoice_agent.cli import seed_run
 from invoice_agent.deps import Deps
 from invoice_agent.graph import build_graph, make_route_after_triage, make_route_after_validate
+from invoice_agent.llm.stub import stub_client
 from invoice_agent.models import (
     Finding,
     FindingCode,
     InvoiceScope,
+    LineItem,
     LineScope,
     PolicyGate,
     RepairAttempt,
+    RepairOutput,
     ValidationReport,
 )
 
@@ -30,7 +35,7 @@ NODES = {
 
 # Nodes with a real implementation. Shrinks as each component lands, so the
 # honesty check below stays meaningful for whatever is still a stub.
-IMPLEMENTED = {"load", "extract", "deduplicate", "validate"}
+IMPLEMENTED = {"load", "extract", "deduplicate", "validate", "repair"}
 STILL_STUBBED = NODES - IMPLEMENTED
 
 
@@ -151,3 +156,43 @@ class TestStubsAreHonest:
             node = getattr(module, f"make_{name}")(deps)
             with pytest.raises(NotImplementedError, match=name):
                 node(make_run())
+
+
+class TestPipelineReachesTriage:
+    """Everything up to triage is built. This pins where the front of the
+    pipeline currently ends, so the next component knows what it is plugging
+    into and a regression upstream fails here rather than in a demo."""
+
+    def _deps(self, deps, *responses):
+        return replace(deps, llm=stub_client(list(responses)))
+
+    def test_a_clean_invoice_runs_load_to_triage(self, deps, invoice_dir, make_extraction):
+        """INV-1001: exact item names, known vendor, arithmetic that adds up."""
+        node_deps = self._deps(deps, make_extraction(due_date=date(2099, 1, 1)))
+        with pytest.raises(NotImplementedError, match="triage"):
+            build_graph(node_deps).invoke(seed_run(invoice_dir / "invoice_1001.txt"))
+
+    def test_a_repairable_invoice_runs_the_repair_round_before_triage(
+        self, deps, invoice_dir, make_extraction, log_stream
+    ):
+        """INV-1016: WidgetC resolves to nothing, so validate -> repair ->
+        validate runs before triage is reached."""
+        extraction = make_extraction(
+            due_date=date(2099, 1, 1),
+            line_items=[LineItem(raw_item_name="WidgetC", quantity=3, unit_price="350.00")],
+            subtotal="1050.00",
+            total_amount="1050.00",
+        )
+        node_deps = self._deps(deps, extraction, RepairOutput(patches=[]))
+        with pytest.raises(NotImplementedError, match="triage"):
+            build_graph(node_deps).invoke(seed_run(invoice_dir / "invoice_1016.json"))
+
+        stages = [
+            (r["stage"], r.get("pass_number"))
+            for r in (json.loads(line) for line in log_stream.getvalue().splitlines())
+            if r["event"] == "stage.end"
+        ]
+        assert stages == [
+            ("load", None), ("extract", None), ("deduplicate", None),
+            ("validate", 1), ("repair", None), ("validate", 2),
+        ]
