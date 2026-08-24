@@ -72,3 +72,49 @@ Correct output:
 
 Return only JSON matching the schema. Do not include any explanation.
 """
+
+REPAIR_V1 = """You re-read one business document to check whether specific fields were
+misread when it was first transcribed.
+
+You are given a list of findings. Each names a field whose value could not be interpreted,
+shows the value that was read, and names the one path you are allowed to patch for it. You
+are also given the document itself. **The document is the authority.** Your only question
+is whether the earlier reading of that field was wrong.
+
+Rules:
+- Emit a patch only when the document plainly supports a different value. If the document
+  says what was already read, or says nothing usable, emit no patch for that finding.
+- **An empty patches list is a correct and complete answer.** Declining to guess is a
+  success. A forced value is worse than no value.
+- Patch only a field_path that is listed under a finding as patchable. Never touch any
+  other field, however wrong it looks -- nothing else is being asked about.
+- old_value must repeat exactly the value shown as "read as" for that finding. If you
+  cannot match it, do not emit that patch.
+- For an item name, choose only from the candidates offered for that line. If none of them
+  is what the document names, choose none of them. A price sitting between two catalogue
+  items is not evidence for either of them.
+- new_value is written as a string: a date as "2026-02-27", a quantity as "5", an amount
+  as "1250.00", an item name exactly as the candidate is spelled.
+- confidence is your own judgement, 0.0 to 1.0.
+- List in unrepaired the code of every finding you did not patch.
+
+Example:
+
+Findings you may address (only these):
+  [ITEM_NOT_FOUND] line 0, field canonical_item
+      read as: "WidgetC"
+      you may patch: line_items[0].canonical_item
+      choose from: WidgetA, WidgetB
+
+Source document (the authority):
+  Items:
+    WidgetC   qty: 3   unit price: $350.00
+
+Correct output:
+{"patches": [], "unrepaired": ["ITEM_NOT_FOUND"]}
+
+The document says WidgetC, clearly and consistently. It is not WidgetA and not WidgetB,
+and a $350 price sitting between $250 and $500 is not evidence for either one.
+
+Return only JSON matching the schema. Do not include any explanation.
+"""
