@@ -3,16 +3,20 @@
 Brief : docs/components.md section 3 -- Deduplicate
 LLM   : No
 In    : run.extraction
-Out   : identity row; on loss, a DUPLICATE_* or EXACT_DUPLICATE finding
+Out   : IdentityClaim
 
 Build the fingerprint (hash of line items + quantities + total), call
-deps.repo.identify(), and handle the loss.
+deps.repo.identify(), and record the outcome as run.identity -- its own slot,
+not a ValidationReport appended to run.validations. Deduplicate isn't a
+validation pass, and a report sitting there is invisible to anything reading
+run.validations[-1] once validate has appended its own.
 
-Equal fingerprint -> EXACT_DUPLICATE (info, no human -- decision 19 has
-triage skip recommend/critique when it sees this). Different fingerprint ->
-DUPLICATE_INVOICE, or DUPLICATE_OF_PAID_INVOICE when this identity has
-already resulted in a payment -- checked across every run under the
-identity, not just the one that currently holds it (see _identity_already_paid).
+Equal fingerprint -> IdentityClaim.finding is EXACT_DUPLICATE (info, no human
+-- decision 19 has triage skip recommend/critique when it sees this).
+Different fingerprint -> DUPLICATE_INVOICE, or DUPLICATE_OF_PAID_INVOICE when
+this identity has already resulted in a payment -- checked across every run
+under the identity, not just the one that currently holds it (see
+_identity_already_paid). A clean claim leaves finding None.
 
 The loser never waits for the winner. It only needs to know a holder exists
 and whether the content agrees.
@@ -30,9 +34,9 @@ from invoice_agent.models import (
     ExtractedInvoice,
     Finding,
     FindingCode,
+    IdentityClaim,
     InvoiceRun,
     InvoiceScope,
-    ValidationReport,
 )
 
 
@@ -114,29 +118,30 @@ def make_deduplicate(deps: Deps) -> NodeFn:
             number, vendor = _identity_fields(extraction)
             fingerprint = _fingerprint(extraction)
 
-            claim = deps.repo.identify(number, vendor, fingerprint, run.run_id)
-            fields["acquired"] = claim.acquired
+            result = deps.repo.identify(number, vendor, fingerprint, run.run_id)
+            fields["acquired"] = result.acquired
 
             finding: Finding | None = None
-            if not claim.acquired:
-                if claim.holder_fingerprint == fingerprint:
+            if not result.acquired:
+                if result.holder_fingerprint == fingerprint:
                     fields["outcome"] = "exact_duplicate"
-                    finding = _exact_duplicate_finding(claim.holder_run_id)
+                    finding = _exact_duplicate_finding(result.holder_run_id)
                 else:
                     already_paid = _identity_already_paid(deps, number, vendor)
                     fields["outcome"] = (
                         "duplicate_of_paid" if already_paid else "duplicate_invoice"
                     )
-                    finding = _conflicting_duplicate_finding(claim.holder_run_id, already_paid)
+                    finding = _conflicting_duplicate_finding(result.holder_run_id, already_paid)
 
-        if finding is None:
-            return {}
+            identity = IdentityClaim(
+                acquired=result.acquired,
+                holder_run_id=result.holder_run_id,
+                fingerprint=fingerprint,
+                holder_fingerprint=result.holder_fingerprint,
+                finding=finding,
+                claimed_at=datetime.now(UTC),
+            )
 
-        report = ValidationReport(
-            pass_number=1,
-            findings=[finding],
-            validated_at=datetime.now(UTC),
-        )
-        return {"validations": run.validations + [report]}
+        return {"identity": identity}
 
     return deduplicate

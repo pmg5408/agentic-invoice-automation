@@ -179,6 +179,28 @@ class ExtractedInvoice(Artifact):
 
 
 # --------------------------------------------------------------------------
+# Stage 1b -- deduplication
+# --------------------------------------------------------------------------
+
+
+class IdentityClaim(Artifact):
+    """The result of deduplicate's attempt to claim (invoice_number, vendor).
+
+    Its own slot on InvoiceRun rather than a ValidationReport appended to
+    validations -- that field means "the output of a validation pass," and no
+    validation ran here. finding is None on a clean claim; set to EXACT_DUPLICATE,
+    DUPLICATE_INVOICE, or DUPLICATE_OF_PAID_INVOICE when the claim was lost.
+    """
+
+    acquired: bool
+    holder_run_id: UUID
+    fingerprint: str
+    holder_fingerprint: str
+    finding: Finding | None = None
+    claimed_at: datetime
+
+
+# --------------------------------------------------------------------------
 # Stage 2 -- validation
 # --------------------------------------------------------------------------
 
@@ -363,6 +385,7 @@ class InvoiceRun(BaseModel):
     current_stage: str
     source: SourceDocument
     extraction: ExtractedInvoice | None = None
+    identity: IdentityClaim | None = None
     validations: list[ValidationReport] = Field(default_factory=list)
     repair: RepairAttempt | None = None
     policy: PolicyGate | None = None
