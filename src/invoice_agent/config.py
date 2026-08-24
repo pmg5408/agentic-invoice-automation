@@ -110,7 +110,11 @@ class Settings(BaseSettings):
 
     # --- canonicalization -------------------------------------------------
     # Score at or above this with a clear margin over the runner-up -> `fuzzy`.
-    fuzzy_accept_cutoff: float = 88.0
+    # 85 rather than 88: measured with rapidfuzz WRatio against the catalogue,
+    # a one-character typo ("Widgt A" -> WidgetA) scores 85.7. The margin below
+    # is what rejects a genuine ambiguity -- "WidgetC" also scores 85.7, but
+    # against both WidgetA and WidgetB, so its margin is 0.
+    fuzzy_accept_cutoff: float = 85.0
     # Below this, an item is not even offered to repair as a candidate.
     fuzzy_candidate_cutoff: float = 60.0
     # Winner must beat the runner-up by this much, else `unresolved`.

@@ -30,7 +30,7 @@ NODES = {
 
 # Nodes with a real implementation. Shrinks as each component lands, so the
 # honesty check below stays meaningful for whatever is still a stub.
-IMPLEMENTED = {"load", "extract", "deduplicate"}
+IMPLEMENTED = {"load", "extract", "deduplicate", "validate"}
 STILL_STUBBED = NODES - IMPLEMENTED
 
 
