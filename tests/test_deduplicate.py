@@ -16,9 +16,16 @@ from invoice_agent.nodes.deduplicate import make_deduplicate
 
 
 class TestFirstCallerAcquires:
-    def test_returns_no_state_change(self, deps, make_run):
-        result = make_deduplicate(deps)(make_run())
-        assert result == {}
+    def test_returns_a_clean_claim_with_no_finding(self, deps, make_run):
+        run = make_run()
+        result = make_deduplicate(deps)(run)
+
+        assert set(result) == {"identity"}
+        identity = result["identity"]
+        assert identity.acquired is True
+        assert identity.holder_run_id == run.run_id
+        assert identity.finding is None
+        assert identity.fingerprint == identity.holder_fingerprint
 
     def test_identity_row_is_actually_written(self, deps, repo, make_run):
         run = make_run()
@@ -39,25 +46,25 @@ class TestExactDuplicate:
         loser = make_run(extraction=make_extraction())  # identical content
         result = make_deduplicate(deps)(loser)
 
-        report = result["validations"][0]
-        assert report.pass_number == 1
-        finding = report.findings[0]
+        identity = result["identity"]
+        assert identity.acquired is False
+        finding = identity.finding
+        assert finding is not None
         assert finding.code == FindingCode.EXACT_DUPLICATE
         assert finding.severity == "info"
         assert finding.repairable is False
         assert str(holder.run_id) in finding.message
 
-    def test_earlier_validations_are_kept_not_replaced(
-        self, deps, repo, make_run, make_extraction
-    ):
+    def test_does_not_touch_validations(self, deps, repo, make_run, make_extraction):
         make_deduplicate(deps)(make_run())
         earlier = ValidationReport(pass_number=1, validated_at=datetime.now(UTC))
         loser = make_run(extraction=make_extraction(), validations=[earlier])
 
         result = make_deduplicate(deps)(loser)
 
-        assert result["validations"][0] is earlier
-        assert len(result["validations"]) == 2
+        # Deduplicate isn't a validation pass -- its finding lives on
+        # run.identity, not appended to run.validations.
+        assert "validations" not in result
 
 
 class TestConflictingDuplicate:
@@ -70,7 +77,7 @@ class TestConflictingDuplicate:
         loser = make_run(extraction=make_extraction(total_amount=Decimal("999999.00")))
         result = make_deduplicate(deps)(loser)
 
-        finding = result["validations"][0].findings[0]
+        finding = result["identity"].finding
         assert finding.code == FindingCode.DUPLICATE_INVOICE
         assert finding.severity == "blocking"
 
@@ -84,7 +91,7 @@ class TestConflictingDuplicate:
         loser = make_run(extraction=make_extraction(total_amount=Decimal("999999.00")))
         result = make_deduplicate(deps)(loser)
 
-        finding = result["validations"][0].findings[0]
+        finding = result["identity"].finding
         assert finding.code == FindingCode.DUPLICATE_OF_PAID_INVOICE
 
     def test_checks_every_run_under_the_identity_not_just_the_holder(
@@ -109,7 +116,7 @@ class TestConflictingDuplicate:
         loser = make_run(extraction=make_extraction(total_amount=Decimal("999999.00")))
         result = make_deduplicate(deps)(loser)
 
-        assert result["validations"][0].findings[0].code == FindingCode.DUPLICATE_OF_PAID_INVOICE
+        assert result["identity"].finding.code == FindingCode.DUPLICATE_OF_PAID_INVOICE
 
     def test_holder_not_yet_saved_defaults_to_unpaid(self, deps, repo, make_run, make_extraction):
         # A race still in progress: the holder claimed the identity but
@@ -120,7 +127,7 @@ class TestConflictingDuplicate:
         loser = make_run(extraction=make_extraction(total_amount=Decimal("1.00")))
         result = make_deduplicate(deps)(loser)
 
-        assert result["validations"][0].findings[0].code == FindingCode.DUPLICATE_INVOICE
+        assert result["identity"].finding.code == FindingCode.DUPLICATE_INVOICE
 
 
 class TestIdentityFallback:
@@ -135,4 +142,4 @@ class TestIdentityFallback:
         loser = make_run(extraction=make_extraction(vendor_name=None))
         result = make_deduplicate(deps)(loser)
 
-        assert result["validations"][0].findings[0].code == FindingCode.EXACT_DUPLICATE
+        assert result["identity"].finding.code == FindingCode.EXACT_DUPLICATE
