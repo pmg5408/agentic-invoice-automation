@@ -38,7 +38,6 @@ the patches themselves record what changed.
 from __future__ import annotations
 
 import re
-import time
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
@@ -59,7 +58,6 @@ from invoice_agent.models import (
     LineItem,
     LineScope,
     RepairAttempt,
-    StageMetrics,
     ValidationReport,
 )
 
@@ -498,7 +496,6 @@ def make_validate(deps: Deps) -> NodeFn:
         assert run.extraction is not None, "validate runs after extract"
 
         log = deps.logger.bind(run.run_id)
-        started = time.perf_counter()
         with log.stage("validate") as fields:
             inventory = deps.inventory()
             folded = {key.casefold(): key for key in inventory}
@@ -533,10 +530,9 @@ def make_validate(deps: Deps) -> NodeFn:
             fields["findings"] = len(findings)
             fields["unresolved"] = sum(1 for r in resolutions if r.canonical_item is None)
 
-        metrics = StageMetrics(latency_ms=int((time.perf_counter() - started) * 1000))
-        return {
-            "validations": run.validations + [report],
-            "stage_metrics": {**run.stage_metrics, "validate": metrics},
-        }
+        # No StageMetrics: this stage has no provenance to record, and
+        # log.stage() already timed it. A second copy of one number is not
+        # evidence, it is drift waiting to happen.
+        return {"validations": run.validations + [report]}
 
     return validate
