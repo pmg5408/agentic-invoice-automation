@@ -24,7 +24,6 @@ from invoice_agent.models import (
     LineItem,
     RepairAttempt,
     RepairOutput,
-    StageMetrics,
     ValidationReport,
 )
 from invoice_agent.nodes.validate import make_validate
@@ -560,13 +559,7 @@ class TestStateUpdate:
         assert result["validations"][0] is earlier
         assert len(result["validations"]) == 2
 
-    def test_earlier_stage_metrics_are_merged_not_replaced(self, validate_deps, make_run):
-        run = make_run(stage_metrics={"extract": StageMetrics(latency_ms=42)})
-        metrics = make_validate(validate_deps)(run)["stage_metrics"]
-        assert set(metrics) == {"extract", "validate"}
-        assert metrics["extract"].latency_ms == 42
-
-    def test_a_deterministic_stage_claims_no_model(self, validate_deps, make_run):
-        metrics = make_validate(validate_deps)(make_run())["stage_metrics"]["validate"]
-        assert metrics.model is None
-        assert metrics.prompt_version is None
+    def test_a_deterministic_stage_records_no_metrics(self, validate_deps, make_run):
+        """Nothing to record: no model, no cost, and log.stage() already timed
+        it. load and deduplicate do the same."""
+        assert set(make_validate(validate_deps)(make_run())) == {"validations"}
