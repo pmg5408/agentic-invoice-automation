@@ -37,7 +37,6 @@ the patches themselves record what changed.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
@@ -60,6 +59,7 @@ from invoice_agent.models import (
     RepairAttempt,
     ValidationReport,
 )
+from invoice_agent.nodes import patch_paths
 
 # Fields an invoice cannot be paid without. Dates are handled separately: the
 # extractor collapses "absent" and "unreadable" into the same None, so
@@ -72,9 +72,6 @@ DATE_FIELDS = ("issue_date", "due_date")
 # --------------------------------------------------------------------------
 # The repair overlay
 # --------------------------------------------------------------------------
-
-_LINE_PATH = re.compile(r"^line_items\[(\d+)\]\.(\w+)$")
-
 
 def _as_str(value: str | None) -> str | None:
     return value if value and value.strip() else None
@@ -146,15 +143,18 @@ def _effective_view(
     forced: dict[int, tuple[str, float]] = {}
 
     for patch in repair.patches:
-        match = _LINE_PATH.match(patch.field_path)
-        if match is None:
-            coerce = _INVOICE_TARGETS.get(patch.field_path)
+        path = patch_paths.parse(patch.field_path)
+        if path is None:
+            continue
+        index, field = path
+
+        if index is None:
+            coerce = _INVOICE_TARGETS.get(field)
             value = coerce(patch.new_value) if coerce else None
             if value is not None:
-                invoice_updates[patch.field_path] = value
+                invoice_updates[field] = value
             continue
 
-        index, field = int(match[1]), match[2]
         if not 0 <= index < len(extraction.line_items):
             continue
         if field == "canonical_item":
