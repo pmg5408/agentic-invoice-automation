@@ -12,28 +12,20 @@ Narrow deterministically before calling the model: pass the top-k fuzzy
 candidates plus the original line, never the whole catalogue.
 
 The model must be able to decline. patches=[] with the codes listed in
-unrepaired is a valid, correct outcome. INV-1016's WidgetC at $350 sits
-between WidgetA (250) and WidgetB (500) and matches neither -- forcing a
-match there is the failure, not the empty result.
+unrepaired is a valid, correct outcome.
 
 Three things keep this from manufacturing the success it is looking for:
 only repairable findings are ever shown, so the model never learns that
 QTY_EXCEEDS_STOCK fired and cannot help by rereading 20 as 2; the prompt
 never says validation failed; and every returned patch is screened against
-the allowlist the prompt was built from, because a prompt instruction is a
-request, not a constraint.
+the same set of fields the prompt was built from.
 
 Patches target specific fields. Never rewrite the extraction. Control then
 returns to validate, which reads the extraction through these patches and
 produces a second report; both persist.
 
-Provenance is not yours to set. deps.llm records model and prompt_version
-on StageMetrics from the request; the schema you pass to complete() must
-contain only fields the model itself authors.
-
-The model returns RepairOutput (patches + unrepaired). You wrap it in a
-RepairAttempt with round and triggered_by -- those are yours, not the
-model's.
+The model returns RepairOutput (patches + unrepaired). It is wrapped in a
+RepairAttempt with round and triggered_by.
 """
 
 from __future__ import annotations
@@ -54,6 +46,7 @@ from invoice_agent.models import (
     StageMetrics,
     ValidationReport,
 )
+from invoice_agent.nodes import patch_paths
 from invoice_agent.nodes.prompts import REPAIR_V1
 
 PROMPT_VERSION = "repair-v1"
@@ -72,31 +65,25 @@ _SUMMARY_FIELDS = (
 
 
 # --------------------------------------------------------------------------
-# The allowlist
+# What the model is allowed to patch
 # --------------------------------------------------------------------------
 
 
-def _target(finding: Finding) -> str | None:
-    """The one path a finding licenses the model to patch, or None when the
-    finding does not point at a field."""
-    field = finding.scope.field
-    if field is None:
-        return None
-    if finding.scope.kind == "line":
-        return f"line_items[{finding.scope.line_index}].{field}"
-    return field
+def _patchable_fields(findings: list[Finding]) -> dict[str, Finding]:
+    """The fields these findings license the model to patch, each mapped back
+    to the finding that licensed it.
 
-
-def _allowlist(findings: list[Finding]) -> dict[str, Finding]:
-    """Path -> the finding that licensed it. Built from the findings alone, so
-    the set the prompt offers and the set enforced on the way back cannot
-    drift apart."""
-    targets: dict[str, Finding] = {}
+    Keyed by ``field_path`` because that is how the model names a field. Built
+    once and used twice -- to write the prompt, and to screen what comes back
+    -- so the set offered and the set enforced cannot drift apart. A
+    whole-invoice finding names no field and contributes nothing.
+    """
+    patchable: dict[str, Finding] = {}
     for finding in findings:
-        path = _target(finding)
+        path = patch_paths.build(finding.scope)
         if path is not None:
-            targets.setdefault(path, finding)
-    return targets
+            patchable.setdefault(path, finding)
+    return patchable
 
 
 def _current_value(extraction: ExtractedInvoice, finding: Finding) -> object | None:
@@ -137,11 +124,11 @@ def _shown(value: object | None) -> str:
 
 
 def _findings_block(
-    targets: dict[str, Finding], extraction: ExtractedInvoice, report: ValidationReport
+    patchable: dict[str, Finding], extraction: ExtractedInvoice, report: ValidationReport
 ) -> str:
     candidates = {r.line_index: r.candidates_considered for r in report.resolutions}
     lines: list[str] = []
-    for path, finding in targets.items():
+    for path, finding in patchable.items():
         where = (
             f"line {finding.scope.line_index}" if finding.scope.kind == "line" else "invoice"
         )
@@ -171,14 +158,14 @@ def _extraction_block(extraction: ExtractedInvoice) -> str:
 def _build_request(
     run: InvoiceRun,
     report: ValidationReport,
-    targets: dict[str, Finding],
+    patchable: dict[str, Finding],
     stage_cfg: StageLLMConfig,
 ) -> LLMRequest:
     extraction = run.extraction
     assert extraction is not None
     case = (
         "Findings you may address (only these):\n"
-        f"{_findings_block(targets, extraction, report)}\n\n"
+        f"{_findings_block(patchable, extraction, report)}\n\n"
         f"Extraction as read:\n{_extraction_block(extraction)}\n\n"
         f"Source document (the authority):\n{run.source.raw_text}"
     )
@@ -212,7 +199,7 @@ def _old_value_agrees(patch: FieldPatch, current: object | None) -> bool:
 
 
 def _screen(
-    output: RepairOutput, targets: dict[str, Finding], extraction: ExtractedInvoice
+    output: RepairOutput, patchable: dict[str, Finding], extraction: ExtractedInvoice
 ) -> RepairOutput:
     """Keep only patches the findings licensed, then derive unrepaired.
 
@@ -227,12 +214,12 @@ def _screen(
     kept = [
         patch
         for patch in output.patches
-        if patch.field_path in targets
-        and _old_value_agrees(patch, _current_value(extraction, targets[patch.field_path]))
+        if patch.field_path in patchable
+        and _old_value_agrees(patch, _current_value(extraction, patchable[patch.field_path]))
     ]
     patched = {patch.field_path for patch in kept}
     unrepaired = _codes(
-        [finding for path, finding in targets.items() if path not in patched]
+        [finding for path, finding in patchable.items() if path not in patched]
     )
     return RepairOutput(patches=kept, unrepaired=unrepaired)
 
@@ -263,19 +250,19 @@ def make_repair(deps: Deps) -> NodeFn:
                 fields["outcome"] = "skipped"
                 return {}
 
-            targets = _allowlist(repairable)
-            if not targets:
+            patchable = _patchable_fields(repairable)
+            if not patchable:
                 fields["outcome"] = "nothing_patchable"
                 return {}
 
-            triggered = _codes(list(targets.values()))
+            triggered = _codes(list(patchable.values()))
             fields["triggered_by"] = [str(code) for code in triggered]
 
             try:
                 response = deps.llm.complete(
-                    _build_request(run, report, targets, stage_cfg), RepairOutput
+                    _build_request(run, report, patchable, stage_cfg), RepairOutput
                 )
-                output = _screen(response.parsed, targets, run.extraction)
+                output = _screen(response.parsed, patchable, run.extraction)
                 metrics = response.metrics
             except LLMError as exc:
                 # Not terminal. The findings survive intact, validate runs a
