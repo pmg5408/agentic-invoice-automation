@@ -31,8 +31,10 @@ and a second copy of deduplicate's for the loser.
 On pass 2 the extraction is read through run.repair's patches. Repair never
 rewrites the extraction (invariant 4), so without that overlay pass 2 would be
 byte-identical to pass 1 and the repair loop would do nothing. The patched
-view is a local: run.extraction on disk stays exactly what the model said, and
-the patches themselves record what changed.
+view is persisted as the report's effective_invoice -- the one invoice
+downstream nodes act on -- alongside applied_patches, the subset of repair's
+patches that actually took effect. run.extraction stays exactly what the
+model said.
 """
 
 from __future__ import annotations
@@ -48,6 +50,7 @@ from invoice_agent.config import Settings
 from invoice_agent.deps import Deps, NodeFn
 from invoice_agent.models import (
     ExtractedInvoice,
+    FieldPatch,
     Finding,
     FindingCode,
     InventoryItem,
@@ -121,13 +124,16 @@ _LINE_TARGETS = {
 
 @dataclass(frozen=True)
 class _EffectiveView:
-    """The invoice as it reads after repair. ``invoice`` is a throwaway copy;
+    """The invoice as it reads after repair, and which patches got it there.
     ``forced_items`` carries the one patch kind the extraction cannot hold --
     canonical_item is a field of ItemResolution, which is validate's own
-    output, so it lands as a resolution override rather than a copied field."""
+    output, so it lands as a resolution override rather than a copied field.
+    ``applied`` is every patch that took effect, in patch order; the report
+    persists it so a reader can tell an applied patch from a rejected one."""
 
     invoice: ExtractedInvoice
     forced_items: dict[int, tuple[str, float]]
+    applied: list[FieldPatch]
 
 
 def _effective_view(
@@ -136,11 +142,12 @@ def _effective_view(
     inventory: dict[str, InventoryItem],
 ) -> _EffectiveView:
     if repair is None or not repair.patches:
-        return _EffectiveView(extraction, {})
+        return _EffectiveView(extraction, {}, [])
 
     invoice_updates: dict[str, Any] = {}
     line_updates: dict[int, dict[str, Any]] = {}
     forced: dict[int, tuple[str, float]] = {}
+    applied: list[FieldPatch] = []
 
     for patch in repair.patches:
         path = patch_paths.parse(patch.field_path)
@@ -153,6 +160,7 @@ def _effective_view(
             value = coerce(patch.new_value) if coerce else None
             if value is not None:
                 invoice_updates[field] = value
+                applied.append(patch)
             continue
 
         if not 0 <= index < len(extraction.line_items):
@@ -161,11 +169,13 @@ def _effective_view(
             # An item the catalogue does not have is not a resolution.
             if patch.new_value in inventory:
                 forced[index] = (patch.new_value, patch.confidence)
+                applied.append(patch)
             continue
         coerce = _LINE_TARGETS.get(field)
         value = coerce(patch.new_value) if coerce else None
         if value is not None:
             line_updates.setdefault(index, {})[field] = value
+            applied.append(patch)
 
     if line_updates:
         invoice_updates["line_items"] = [
@@ -174,7 +184,7 @@ def _effective_view(
         ]
 
     invoice = extraction.model_copy(update=invoice_updates) if invoice_updates else extraction
-    return _EffectiveView(invoice, forced)
+    return _EffectiveView(invoice, forced, applied)
 
 
 # --------------------------------------------------------------------------
@@ -519,8 +529,10 @@ def make_validate(deps: Deps) -> NodeFn:
             pass_number = 1 if run.repair is None else run.repair.round + 1
             report = ValidationReport(
                 pass_number=pass_number,
+                effective_invoice=invoice,
                 resolutions=resolutions,
                 findings=findings,
+                applied_patches=view.applied,
                 aggregated_quantities=totals,
                 validated_at=datetime.now(UTC),
             )

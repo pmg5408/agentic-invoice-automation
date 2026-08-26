@@ -194,7 +194,10 @@ class TestValidationReportStatus:
 
     def _report(self, *findings):
         return ValidationReport(
-            pass_number=1, findings=list(findings), validated_at=datetime(2026, 1, 1)
+            pass_number=1,
+            effective_invoice=ExtractedInvoice(),
+            findings=list(findings),
+            validated_at=datetime(2026, 1, 1),
         )
 
     def test_no_findings_is_clean(self):
@@ -212,6 +215,7 @@ class TestValidationReportStatus:
     def test_status_cannot_be_supplied(self):
         report = ValidationReport(
             pass_number=1,
+            effective_invoice=ExtractedInvoice(),
             findings=[_finding(FindingCode.ZERO_STOCK_ITEM)],
             validated_at=datetime(2026, 1, 1),
             status="clean",  # ignored: not a field
@@ -220,4 +224,8 @@ class TestValidationReportStatus:
 
     def test_pass_number_must_be_positive(self):
         with pytest.raises(ValidationError):
-            ValidationReport(pass_number=0, validated_at=datetime(2026, 1, 1))
+            ValidationReport(
+                pass_number=0,
+                effective_invoice=ExtractedInvoice(),
+                validated_at=datetime(2026, 1, 1),
+            )

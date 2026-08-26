@@ -11,7 +11,12 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
-from invoice_agent.models import FindingCode, PaymentResult, ValidationReport
+from invoice_agent.models import (
+    ExtractedInvoice,
+    FindingCode,
+    PaymentResult,
+    ValidationReport,
+)
 from invoice_agent.nodes.deduplicate import make_deduplicate
 
 
@@ -57,7 +62,9 @@ class TestExactDuplicate:
 
     def test_does_not_touch_validations(self, deps, repo, make_run, make_extraction):
         make_deduplicate(deps)(make_run())
-        earlier = ValidationReport(pass_number=1, validated_at=datetime.now(UTC))
+        earlier = ValidationReport(
+            pass_number=1, effective_invoice=ExtractedInvoice(), validated_at=datetime.now(UTC)
+        )
         loser = make_run(extraction=make_extraction(), validations=[earlier])
 
         result = make_deduplicate(deps)(loser)

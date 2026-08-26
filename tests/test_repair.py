@@ -15,6 +15,7 @@ import pytest
 from invoice_agent.llm.client import LLMClient
 from invoice_agent.llm.stub import RaisingProvider, StubProvider
 from invoice_agent.models import (
+    ExtractedInvoice,
     FieldPatch,
     Finding,
     FindingCode,
@@ -67,6 +68,7 @@ def qty_exceeds_stock() -> Finding:
 def report(*findings: Finding, resolutions: list[ItemResolution] | None = None):
     return ValidationReport(
         pass_number=1,
+        effective_invoice=ExtractedInvoice(),
         findings=list(findings),
         resolutions=resolutions or [],
         validated_at=datetime.now(UTC),

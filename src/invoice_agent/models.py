@@ -215,11 +215,25 @@ class ItemResolution(Artifact):
 
 
 class ValidationReport(Artifact):
+    """The complete picture for one pass. ``run.validations[-1]`` answers what
+    the invoice is (``effective_invoice``), what is still wrong with it
+    (``findings``), and which of its values an LLM wrote (``applied_patches``)
+    -- downstream nodes read this report, not the raw extraction. The
+    untouched originals stay on ``run.extraction`` and ``run.repair``."""
+
     # Bounded by settings.repair_round_cap, which is where that number lives.
     # Literal[1, 2] would pin the cap into the type as a second source of truth.
     pass_number: int = Field(ge=1)
+    # The invoice this pass validated and downstream acts on. Pass 1: identical
+    # to run.extraction. Pass 2: the extraction read through the applied
+    # patches. Always populated, so no consumer needs a fallback branch.
+    effective_invoice: ExtractedInvoice
     resolutions: list[ItemResolution] = Field(default_factory=list)
     findings: list[Finding] = Field(default_factory=list)
+    # The repair patches that actually took effect this pass. A patch in
+    # run.repair but not here was rejected as malformed -- an unparseable
+    # value, an unknown item, a path outside the grammar.
+    applied_patches: list[FieldPatch] = Field(default_factory=list)
     aggregated_quantities: dict[str, int] = Field(default_factory=dict)
     validated_at: datetime
 
