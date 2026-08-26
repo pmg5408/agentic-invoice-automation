@@ -19,6 +19,7 @@ import pytest
 from invoice_agent.llm.client import LLMClient
 from invoice_agent.llm.stub import RaisingProvider
 from invoice_agent.models import (
+    ExtractedInvoice,
     FieldPatch,
     FindingCode,
     LineItem,
@@ -539,6 +540,64 @@ class TestRepairOverlay:
         assert run.extraction.line_items[0].quantity == -5
 
 
+class TestEffectiveInvoice:
+    """run.validations[-1] is the complete picture for a pass: the invoice
+    downstream acts on, what is wrong with it, and which values an LLM wrote.
+    No consumer should need a fallback to run.extraction."""
+
+    def test_pass_one_carries_the_extraction_verbatim(
+        self, validate_deps, make_run, make_extraction
+    ):
+        extraction = make_extraction()
+        report = run_validate(validate_deps, make_run(extraction=extraction))
+        assert report.effective_invoice == extraction
+        assert report.applied_patches == []
+
+    def test_a_patched_amount_is_readable_from_the_report(
+        self, validate_deps, make_run, make_extraction
+    ):
+        # The case this field exists for: repair fills a missing total_amount,
+        # pass 2 clears the finding, and pay must be able to read the amount
+        # it is about to move -- run.extraction still says None forever.
+        run = make_run(
+            extraction=make_extraction(total_amount=None),
+            repair=attempt(patch("total_amount", "1250.00")),
+        )
+        report = run_validate(validate_deps, run)
+        assert report.effective_invoice.total_amount == Decimal("1250.00")
+        assert run.extraction.total_amount is None
+
+    def test_applied_patches_records_what_took_effect_and_only_that(
+        self, validate_deps, make_run, make_extraction
+    ):
+        # One good patch, one the coercion rejects. The report is where a
+        # reader tells them apart; run.repair holds both, looking identical.
+        good = patch("due_date", "2099-02-27")
+        rejected = patch("line_items[0].quantity", "five")
+        run = make_run(
+            extraction=make_extraction(due_date=None, line_items=[line("WidgetA", -5)]),
+            repair=attempt(good, rejected),
+        )
+        report = run_validate(validate_deps, run)
+        assert report.applied_patches == [good]
+        assert report.effective_invoice.due_date == date(2099, 2, 27)
+
+    def test_a_canonical_item_patch_counts_as_applied(
+        self, validate_deps, make_run, make_extraction
+    ):
+        # It changes a resolution rather than the invoice, but it took effect
+        # and downstream suspicion should cover it.
+        applied = patch("line_items[0].canonical_item", "WidgetA")
+        run = make_run(
+            extraction=make_extraction(line_items=[line("WidgetA (rush order)", 4)]),
+            repair=attempt(applied),
+        )
+        report = run_validate(validate_deps, run)
+        assert report.applied_patches == [applied]
+        # The invoice itself is untouched by this patch kind.
+        assert report.effective_invoice.line_items[0].raw_item_name == "WidgetA (rush order)"
+
+
 class TestPassNumbering:
     def test_the_first_pass_is_pass_one(self, validate_deps, make_run):
         assert run_validate(validate_deps, make_run()).pass_number == 1
@@ -553,7 +612,11 @@ class TestStateUpdate:
     def test_earlier_validations_are_kept_not_replaced(
         self, validate_deps, make_run, make_extraction
     ):
-        earlier = ValidationReport(pass_number=1, validated_at=date.today().isoformat())
+        earlier = ValidationReport(
+            pass_number=1,
+            effective_invoice=ExtractedInvoice(),
+            validated_at=date.today().isoformat(),
+        )
         run = make_run(validations=[earlier])
         result = make_validate(validate_deps)(run)
         assert result["validations"][0] is earlier

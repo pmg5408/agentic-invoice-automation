@@ -17,6 +17,7 @@ from invoice_agent.deps import Deps
 from invoice_agent.graph import build_graph, make_route_after_triage, make_route_after_validate
 from invoice_agent.llm.stub import stub_client
 from invoice_agent.models import (
+    ExtractedInvoice,
     Finding,
     FindingCode,
     InvoiceScope,
@@ -42,6 +43,7 @@ STILL_STUBBED = NODES - IMPLEMENTED
 def report(*findings: Finding, pass_number: int = 1) -> ValidationReport:
     return ValidationReport(
         pass_number=pass_number,
+        effective_invoice=ExtractedInvoice(),
         findings=list(findings),
         validated_at=datetime.now(UTC),
     )
