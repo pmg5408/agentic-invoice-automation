@@ -1,119 +1,83 @@
-# Galatiq Case: Invoice Processing Automation
+# Agentic Invoice Automation
 
-## Background
+Paying a vendor invoice usually means a person doing four jobs: read the
+document, check it against what was actually ordered and stocked, get it
+approved, and send the payment. This project automates that entire flow.
+Give it a folder of invoices and each one comes out the other end paid,
+rejected, or queued for a human — with the reasoning recorded at every step.
 
-Acme Corp is a PE-backed manufacturing firm losing **$2M/year** on manual invoice processing. Invoices arrive via email as PDFs in messy formats with frequent errors. Staff manually extract data, validate against a legacy inventory database (inconsistent), obtain VP approval (via email chains), and process payment (via a banking API).
+It's built for messy invoices — the kind vendors actually send — and for
+being able to explain itself afterwards: every extraction, check, correction,
+and decision is persisted, so you can always see why an invoice ended up
+where it did. It's also deliberately frugal: a clean invoice costs one LLM
+call, and only the genuinely ambiguous ones get the full multi-agent
+treatment.
 
-**Current pain points:**
-- 30% error rate
-- 5-day processing delays
-- Frustrated stakeholders
+## What happens to an invoice
 
-## Objective
+    load → extract (LLM) → deduplicate → validate ⇄ repair (LLM) → triage → draft approval (LLM) → critique it (LLM) → decide → pay
 
-Build a **multi-agent system** that automates the end-to-end invoice processing workflow. The system must run as a working prototype — not just designs or slides.
+Every format — PDF, CSV, JSON, XML, plain text, an invoice pasted into an
+email — is first normalized to plain text, then an LLM extracts the
+structured fields — invoice number, vendor, line items, amounts, dates —
+against a strict schema. If a field isn't in the document it comes back null;
+the model isn't allowed to guess.
 
-## Workflow
+Before doing anything expensive, the run claims the invoice's identity
+(number + vendor) in the database. If another run already holds it, this one
+is a duplicate and gets flagged or skipped — which also makes it safe to
+process a whole batch concurrently.
 
-The system should handle four stages:
+Validation is deterministic, plain code: match each line item to the
+inventory catalogue (exact, then fuzzy), check requested quantities against
+stock, verify the arithmetic, flag unknown vendors, past-due dates, and
+negative quantities.
 
-1. **Ingestion** — Extract structured data from invoice documents (PDFs, text files). Fields include: Vendor, Amount, Items (with quantities), and Due Date. Expect unstructured text, typos, missing data, and potentially fraudulent entries.
+Some failures deserve a second look. If validation failed because the model
+may have *misread* the document — an ambiguous item name, a date it couldn't
+parse — one repair call gets to re-read the original text and propose
+corrections, then validation runs again. The repair model is also free to
+decline — "I can't tell what this item is" is a valid answer, and better
+than a forced match.
 
-2. **Validation** — Verify extracted data against a mock inventory database (SQLite). Flag mismatches such as quantity exceeding available stock or items not found in inventory.
+Triage then applies the policy rules. Most invoices end here: clean and
+under the approval threshold means auto-approve, and a few things (a
+zero-stock item, a duplicate of something already paid) block outright. Only
+the ambiguous middle goes to the approval agents — one drafts a
+recommendation to approve, reject, or escalate, with its reasoning; a second
+gets the same evidence and tries to poke holes in the draft. The final
+decision is computed from the policy rules plus both opinions, and a hard
+rule always wins over the agents. Payment goes through a mock API with an
+idempotency key, so re-running an invoice can never pay it twice.
 
-3. **Approval** — Simulate VP-level review with rule-based decision-making (e.g., invoices over $10K require additional scrutiny). The agent should reason through approval/rejection with a reflection or critique loop.
-
-4. **Payment** — If approved, call a mock payment function. If rejected, log the rejection with reasoning.
-
-## Technical Requirements
-
-- **LLM Integration**: Use xAI's Grok as the core reasoning engine (via the xAI API at https://grok.x.ai). Other models are acceptable if you don't have an API key.
-- **Multi-Agent Orchestration**: Use a framework such as LangGraph, CrewAI, AutoGen, or a custom solution.
-- **Agent Capabilities**: Function calling / tool use, structured outputs, and self-correction loops.
-- **Runtime**: Assume no internet for external APIs — simulate everything locally.
-- **Tech Stack**: Python (preferred), with libraries like `langchain`, `crewai`, `autogen`, `pdfplumber`, `PyMuPDF`, etc. Run locally — no cloud deployment.
-
-## Provided Resources
-
-### Mock Invoice Data
-
-Sample invoices are provided in the `data/invoices/` directory in various formats (PDF, CSV, JSON, TXT). Use these as inputs for testing. The data intentionally includes a mix of clean entries and problematic ones — identifying and handling issues is part of the challenge.
-
-### Mock Inventory Database (Required Setup)
-
-Before running the system, you **must** create a local SQLite database that the validation agent will check invoices against. The sample invoices in `data/invoices/` reference specific items and quantities — your database needs to contain matching inventory records so the validation stage can flag mismatches, out-of-stock items, and unknown products.
-
-Below is a starter schema and seed data that covers the core items referenced across the provided invoices:
-
-```python
-import sqlite3
-
-conn = sqlite3.connect('inventory.db')  # Persist to file so all agents can access it
-cursor = conn.cursor()
-
-cursor.execute('CREATE TABLE IF NOT EXISTS inventory (item TEXT PRIMARY KEY, stock INTEGER)')
-cursor.execute("""
-    INSERT INTO inventory VALUES
-    ('WidgetA', 15),
-    ('WidgetB', 10),
-    ('GadgetX', 5),
-    ('FakeItem', 0)
-""")
-conn.commit()
-```
-
-**Why this matters:** The sample invoices are designed to test your validation logic against this database. For example:
-
-| Scenario | Invoice | What should happen |
-|---|---|---|
-| Normal order within stock | INV-1001, INV-1004, INV-1006 | Items found, quantities valid — passes validation |
-| Quantity exceeds stock | INV-1002 (requests 20× GadgetX, only 5 in stock) | Flagged as stock mismatch |
-| Fraudulent / zero-stock item | INV-1003 (references FakeItem, 0 stock) | Flagged as out of stock or suspicious |
-| Item not in database at all | INV-1008 (SuperGizmo, MegaSprocket), INV-1016 (WidgetC) | Flagged as unknown item |
-| Invalid data | INV-1009 (negative quantity) | Flagged as data integrity issue |
-
-You may extend the seed data with additional items or columns (e.g., unit price, category) to support richer validation — the above is the minimum needed to exercise the provided test invoices. If you want your system to also validate pricing or vendor information, consider adding tables for those as well.
-
-### Mock Payment API
-
-```python
-def mock_payment(vendor, amount):
-    print(f"Paid {amount} to {vendor}")
-    return {"status": "success"}
-```
-
-### Grok API Setup
-
-```python
-from xai import Grok
-
-client = Grok(api_key="your_key")
-response = client.chat.completions.create(
-    model="grok-3",
-    messages=[{"role": "user", "content": "Reason about this..."}]
-)
-```
-
-## Running the System
-
-The system should be executable from the command line:
+## Running it
 
 ```bash
-python main.py --invoice_path=data/invoices/invoice1.txt
+make setup    # uv venv on Python 3.14 + editable install
+make seed     # build invoices.db from the seed data
+invoice-agent --invoice-path=data/invoices/invoice_1001.txt
+invoice-agent --batch=data/invoices/
 ```
 
-Output should include structured logs and results.
+LLM calls go to NVIDIA NIM's free tier (`minimaxai/minimax-m3`) — put
+`NVIDIA_API_KEY` in `.env`. The test suite runs fully stubbed, no key and no
+network needed:
 
-## Evaluation Criteria
+```bash
+make test
+```
 
-- **Functionality** — Does the system work end-to-end?
-- **Code Quality** — Clean, testable, well-structured code with error handling and observability
-- **Agentic Sophistication** — LLM integration, multi-agent flow, tool use, self-correction loops
-- **Shipping Mindset** — Valuable MVP delivered under ambiguity; scope ruthlessly cut where needed
-- **Presentation** — Clear translation of technical decisions to business impact
-- **Above/Beyond** - Have you made it your own? Implemented additional features that make the solution feel great? Expanded assumptions? Added to test cases?
-- **UI/UX** - Users will understand and enjoy using this system.
+## Stack
 
-## Submission
+Python 3.14 · LangGraph for orchestration · Pydantic models end to end
+(model output is schema-validated before it enters the pipeline) · SQLite
+for the catalogue, vendor history, and run store · rapidfuzz for item
+matching. Money is `Decimal` throughout, never float.
 
-Submit your solution as a link to a public GitHub repository — GitHub only (github.com).
+## Status
+
+Work in progress. The pipeline through validate/repair is on `main`;
+triage through payment is in review. Next up: a read-only UI over the run
+store — every stage's output is already persisted, so the queue, the repair
+diffs, and the draft-vs-critique disagreements are all renderable from data
+that's already there.
